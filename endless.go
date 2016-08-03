@@ -15,9 +15,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
 	// "github.com/fvbock/uds-go/introspect"
+	// "golang.org/x/net/http2" // http2.ConfigureServer(&srv, &http2.Server{})
 )
+
+// "golang.org/x/net/http2" // http2.ConfigureServer(&srv, &http2.Server{})
 
 const (
 	PRE_SIGNAL = iota
@@ -127,6 +129,8 @@ func NewServer(addr string, handler http.Handler) (srv *endlessServer) {
 		lock:  &sync.RWMutex{},
 	}
 
+	//http2.ConfigureServer(srv, &http2.Server{})
+
 	srv.Server.Addr = addr
 	srv.Server.ReadTimeout = DefaultReadTimeOut
 	srv.Server.WriteTimeout = DefaultWriteTimeOut
@@ -165,6 +169,14 @@ func ListenAndServeTLS(addr string, certFile string, keyFile string, handler htt
 	return server.ListenAndServeTLS(certFile, keyFile)
 }
 
+// PJS
+// func (srv *endlessServer) ListenAndServeTLSWithSNI(tlsConfigs []TLSConfig) (err error) {
+// func ListenAndServeTLSWithSNI(srv *http.Server, tlsConfigs []TLSConfig) (err error) {
+func ListenAndServeTLSWithSNI(addr string, handler http.Handler, tlsConfigs []TLSConfig) (err error) {
+	server := NewServer(addr, handler)
+	return server.ListenAndServeTLSWithSNI(tlsConfigs)
+}
+
 func (srv *endlessServer) getState() uint8 {
 	srv.lock.RLock()
 	defer srv.lock.RUnlock()
@@ -199,6 +211,8 @@ func (srv *endlessServer) Serve() (err error) {
 	return
 }
 
+var once sync.Once
+
 /*
 ListenAndServe listens on the TCP network address srv.Addr and then calls Serve
 to handle requests on incoming connections. If srv.Addr is blank, ":http" is
@@ -210,7 +224,10 @@ func (srv *endlessServer) ListenAndServe() (err error) {
 		addr = ":http"
 	}
 
-	go srv.handleSignals()
+	// From: http://stackoverflow.com/questions/1823286/singleton-in-go
+	once.Do(func() {
+		go srv.handleSignals()
+	})
 
 	l, err := srv.getListener(addr)
 	if err != nil {
@@ -254,13 +271,94 @@ func (srv *endlessServer) ListenAndServeTLS(certFile, keyFile string) (err error
 		config.NextProtos = []string{"http/1.1"}
 	}
 
+	config.NextProtos = append(config.NextProtos, "h2") // Enable HTTP2.0 progocall
+
 	config.Certificates = make([]tls.Certificate, 1)
 	config.Certificates[0], err = tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return
 	}
 
-	go srv.handleSignals()
+	// From: http://stackoverflow.com/questions/1823286/singleton-in-go
+	once.Do(func() {
+		go srv.handleSignals()
+	})
+
+	l, err := srv.getListener(addr)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	srv.tlsInnerListener = newEndlessListener(l, srv)
+	srv.EndlessListener = tls.NewListener(srv.tlsInnerListener, config)
+
+	if srv.isChild {
+		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
+	}
+
+	log.Println(syscall.Getpid(), srv.Addr)
+	return srv.Serve()
+}
+
+type TLSConfig struct {
+	Certificate              string   // file name of Cert Key
+	Key                      string   // file name of Cert Key
+	ProtocolMinVersion       uint16   // ?? - defaults? I think to 1.2 the highest level - so why set
+	ProtocolMaxVersion       uint16   // ?? - defaults?
+	Ciphers                  []uint16 // Flags of Ciphers - need special processing to read in
+	PreferServerCipherSuites bool     // Flags of Ciphers - need special processing to read in
+}
+
+// PJS mod 1
+// func ListenAndServeTLSWithSNI(srv *http.Server, tlsConfigs []TLSConfig) (err error) {
+func (srv *endlessServer) ListenAndServeTLSWithSNI(tlsConfigs []TLSConfig) (err error) {
+	addr := srv.Addr
+	if addr == "" {
+		addr = ":https"
+	}
+
+	//config := &tls.Config{}
+	//if srv.TLSConfig != nil {
+	//	*config = *srv.TLSConfig
+	//}
+	//if config.NextProtos == nil {
+	//	config.NextProtos = []string{"http/1.1"}
+	//}
+
+	var config *tls.Config
+	if srv.TLSConfig != nil {
+		config = srv.TLSConfig
+	} else {
+		config = new(tls.Config)
+	}
+
+	// return strSliceContains(srv.TLSConfig.NextProtos, http2NextProtoTLS)
+	config.NextProtos = append(config.NextProtos, "h2") // Enable HTTP2.0 progocall
+
+	config.MinVersion = tls.VersionTLS11
+	config.CipherSuites = tlsConfigs[0].Ciphers
+
+	//config.Certificates = make([]tls.Certificate, 1)
+	//config.Certificates[0], err = tls.LoadX509KeyPair(certFile, keyFile)
+	//if err != nil {
+	//	return
+	//}
+	// PJS - Load set of certificate paris instead of single certificate.
+	config.Certificates = make([]tls.Certificate, len(tlsConfigs))
+	for i, tlsConfig := range tlsConfigs {
+		// PJS params are file names, can be relative
+		config.Certificates[i], err = tls.LoadX509KeyPair(tlsConfig.Certificate, tlsConfig.Key) // PJS - reads and parses certs
+		if err != nil {
+			return
+		}
+	}
+	config.BuildNameToCertificate()
+
+	// From: http://stackoverflow.com/questions/1823286/singleton-in-go
+	once.Do(func() {
+		go srv.handleSignals()
+	})
 
 	l, err := srv.getListener(addr)
 	if err != nil {
