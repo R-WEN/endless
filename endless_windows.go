@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 	// "github.com/fvbock/uds-go/introspect"
 )
@@ -69,8 +68,6 @@ func NewServer(addr string, handler http.Handler) (srv *endlessServer) {
 	srv.Server.MaxHeaderBytes = DefaultMaxHeaderBytes
 	srv.Server.Handler = handler
 
-	runningServers[addr] = srv
-
 	return
 }
 
@@ -104,17 +101,6 @@ func ListenAndServeTLSWithSNI(addr string, handler http.Handler, tlsConfigs []TL
 	return server.ListenAndServeTLSWithSNI(tlsConfigs)
 }
 
-func (srv *endlessServer) getState() uint8 {
-	return srv.state
-}
-
-func (srv *endlessServer) setState(st uint8) {
-	srv.lock.Lock()
-	defer srv.lock.Unlock()
-
-	srv.state = st
-}
-
 /*
 Serve accepts incoming HTTP connections on the listener l, creating a new
 service goroutine for each. The service goroutines read requests and then call
@@ -126,16 +112,9 @@ sync.Waitgroup so that all outstanding connections can be served before shutting
 down the server.
 */
 func (srv *endlessServer) Serve() (err error) {
-	defer log.Println(syscall.Getpid(), "Serve() returning...")
-	srv.setState(STATE_RUNNING)
 	err = srv.Server.Serve(srv.EndlessListener)
-	log.Println(syscall.Getpid(), "Waiting for connections to finish...")
-	srv.wg.Wait()
-	srv.setState(STATE_TERMINATE)
 	return
 }
-
-var once sync.Once
 
 /*
 ListenAndServe listens on the TCP network address srv.Addr and then calls Serve
@@ -155,10 +134,6 @@ func (srv *endlessServer) ListenAndServe() (err error) {
 	}
 
 	srv.EndlessListener = newEndlessListener(l, srv)
-
-	if srv.isChild {
-		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
-	}
 
 	srv.BeforeBegin(srv.Addr)
 
@@ -207,11 +182,6 @@ func (srv *endlessServer) ListenAndServeTLS(certFile, keyFile string) (err error
 	srv.tlsInnerListener = newEndlessListener(l, srv)
 	srv.EndlessListener = tls.NewListener(srv.tlsInnerListener, config)
 
-	if srv.isChild {
-		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
-	}
-
-	log.Println(syscall.Getpid(), srv.Addr)
 	return srv.Serve()
 }
 
@@ -278,11 +248,6 @@ func (srv *endlessServer) ListenAndServeTLSWithSNI(tlsConfigs []TLSConfig) (err 
 	srv.tlsInnerListener = newEndlessListener(l, srv)
 	srv.EndlessListener = tls.NewListener(srv.tlsInnerListener, config)
 
-	if srv.isChild {
-		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
-	}
-
-	log.Println(syscall.Getpid(), srv.Addr)
 	return srv.Serve()
 }
 
@@ -293,8 +258,6 @@ it got passed when restarted.
 func (srv *endlessServer) getListener(laddr string) (l net.Listener, err error) {
 	if srv.isChild {
 		var ptrOffset uint = 0
-		runningServerReg.RLock()
-		defer runningServerReg.RUnlock()
 		if len(socketPtrOffsetMap) > 0 {
 			ptrOffset = socketPtrOffsetMap[laddr]
 			// log.Println("laddr", laddr, "ptr offset", socketPtrOffsetMap[laddr])
@@ -350,9 +313,6 @@ func newEndlessListener(l net.Listener, srv *endlessServer) (el *endlessListener
 }
 
 func (el *endlessListener) Close() error {
-	if el.stopped {
-		return syscall.EINVAL
-	}
 
 	el.stopped = true
 	return el.Listener.Close()
