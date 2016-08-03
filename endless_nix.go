@@ -20,10 +20,7 @@ import (
 	"syscall"
 	"time"
 	// "github.com/fvbock/uds-go/introspect"
-	// "golang.org/x/net/http2" // http2.ConfigureServer(&srv, &http2.Server{})
 )
-
-// "golang.org/x/net/http2" // http2.ConfigureServer(&srv, &http2.Server{})
 
 const (
 	PRE_SIGNAL = iota
