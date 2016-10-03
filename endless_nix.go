@@ -441,7 +441,10 @@ func (srv *endlessServer) handleSignals() {
 			srv.shutdown()
 		case syscall.SIGTERM:
 			log.Println(pid, "Received SIGTERM.")
-			srv.shutdown()
+			log.Println(pid, "PJS Mod Received SIGTERM.")
+			// PJS srv.shutdown()
+			// srv.hammerTime(0 * time.Second)
+			os.Exit(0)
 		case syscall.SIGTSTP:
 			log.Println(pid, "Received SIGTSTP.")
 		default:
