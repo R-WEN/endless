@@ -161,15 +161,6 @@ func (srv *endlessServer) ListenAndServeTLS(certFile, keyFile string) (err error
 	return srv.Serve()
 }
 
-type TLSConfig struct {
-	Certificate              string   // file name of Cert Key
-	Key                      string   // file name of Cert Key
-	ProtocolMinVersion       uint16   // ?? - defaults? I think to 1.2 the highest level - so why set
-	ProtocolMaxVersion       uint16   // ?? - defaults?
-	Ciphers                  []uint16 // Flags of Ciphers - need special processing to read in
-	PreferServerCipherSuites bool     // Flags of Ciphers - need special processing to read in
-}
-
 // PJS mod 1
 // func ListenAndServeTLSWithSNI(srv *http.Server, tlsConfigs []TLSConfig) (err error) {
 func (srv *endlessServer) ListenAndServeTLSWithSNI(tlsConfigs []TLSConfig) (err error) {
@@ -240,12 +231,6 @@ func (srv *endlessServer) getListener(laddr string) (l net.Listener, err error) 
 	return
 }
 
-type endlessListener struct {
-	net.Listener
-	stopped bool
-	server  *endlessServer
-}
-
 func (el *endlessListener) Accept() (c net.Conn, err error) {
 	tc, err := el.Listener.(*net.TCPListener).AcceptTCP()
 	if err != nil {
@@ -284,11 +269,6 @@ func (el *endlessListener) File() *os.File {
 	tl := el.Listener.(*net.TCPListener)
 	fl, _ := tl.File()
 	return fl
-}
-
-type endlessConn struct {
-	net.Conn
-	server *endlessServer
 }
 
 func (w endlessConn) Close() error {

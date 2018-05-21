@@ -29,3 +29,23 @@ type endlessServer struct {
 	lock             *sync.RWMutex
 	BeforeBegin      func(add string)
 }
+
+type TLSConfig struct {
+	Certificate              string   // file name of Cert Key
+	Key                      string   // file name of Cert Key
+	ProtocolMinVersion       uint16   // ?? - defaults? I think to 1.2 the highest level - so why set
+	ProtocolMaxVersion       uint16   // ?? - defaults?
+	Ciphers                  []uint16 // Flags of Ciphers - need special processing to read in
+	PreferServerCipherSuites bool     // Flags of Ciphers - need special processing to read in
+}
+
+type endlessListener struct {
+	net.Listener
+	stopped bool
+	server  *endlessServer
+}
+
+type endlessConn struct {
+	net.Conn
+	server *endlessServer
+}
