@@ -44,6 +44,10 @@ func NewServer(addr string, handler http.Handler) (srv *endlessServer) {
 	srv.Server.MaxHeaderBytes = DefaultMaxHeaderBytes
 	srv.Server.Handler = handler
 
+	srv.BeforeBegin = func(addr string) {
+		log.Println(os.Getpid(), addr)
+	}
+
 	return
 }
 
